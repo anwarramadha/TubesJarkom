@@ -44,7 +44,13 @@ typedef struct MESGB {
 typedef struct WindowCek 
 {
   int frameNum;
-  int status;
+  int ackStatus;
+  MESGB frames;
 } WindowCek;
+
+typedef struct SlidingW 
+{
+  WindowCek all[5];
+} SlidingW;
 
 #endif

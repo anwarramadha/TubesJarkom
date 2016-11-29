@@ -28,10 +28,13 @@ char ip[INET_ADDRSTRLEN];
 char * filename;
 char Message[MAXLEN];
 char buff[MaxByte];
+char res[MaxByte];
+char res1[MaxByte];
 int idx = 0;
 int MsgLen = 0;
 int xon = 1;
 int numFrame;
+int exit1 = 0;
 
 //Deklarasi prosedur
 void readFile (char * filename);
@@ -43,7 +46,8 @@ void divideData();
 //Array of frane
 MESGB *arrayFrame;
 MESGB *slidingWindow = (MESGB*) malloc(sizeof(MESGB)*4);
-WindowCek sWindow[WindowSize];
+WindowCek *sWindow;
+SlidingW *sliding;
 
 int main (int argc, char *argv[]) {
 	 Byte c;
@@ -58,22 +62,26 @@ int main (int argc, char *argv[]) {
 	 if (argv[3] != NULL) {
 		filename = argv[1];
 	 }
-	
+	//Baca
 	readFile(filename);
 	divideData();
-	   //untuk inisialisasi slidingnya
-	for(int i=0;i<WindowSize;i++)
-	{
-		WindowCek temp = {i,0};
-		sWindow[i] = temp;
-	}
+	
+	memset((char *) &targetAddr, 0 ,sizeof(targetAddr));
+	targetAddr.sin_family = AF_INET;
+	targetAddr.sin_port = htons(targetPort);
+	if (inet_aton((argv[1]), &targetAddr.sin_addr) == 0) {
+	 	exit(1);
+	} 
+
+	inet_ntop(AF_INET, &(targetAddr.sin_addr), ip, INET_ADDRSTRLEN);
+
 
 	  //ngenransmit dari file data yg dibaca tadi
 	for(int i=0;i<WindowSize;i++) {
-		if(sWindow[i].status==-1 || sWindow[i].status==1) continue;
+		if(sWindow[i].ackStatus==-1 || sWindow[i].ackStatus==1) continue;
 		//kirim perwindow, -1=ack		
 		//sendto(&arrayFrame[sWIndow[i].frameNum],sizeof(arrayFrame[sWIndow[i].frameNum]));
-		sWindow[i].status = 1; //statusnya kekirim
+		sWindow[i].ackStatus = 1; //statusnya kekirim
 	}
 	
 	while(1) //dia ngecek ack
@@ -81,22 +89,15 @@ int main (int argc, char *argv[]) {
 		if(transmit)
 		{
 			for(int i=0;i<WindowSize;i++) {
-				if(sWindow[i].status==-1 ) continue;
+				if(sWindow[i].ackStatus==-1 ) continue;
 				//sendto(&arrayFrame[sWIndow[i].frameNum],sizeof(arrayFrame[sWIndow[i].frameNum]));
-				sWindow[i].status = 1;
+				sWindow[i].ackStatus = 1;
 			}
 			transmit = 0;
 		}
 	}
 
-	// memset((char *) &targetAddr, 0 ,sizeof(targetAddr));
-	// targetAddr.sin_family = AF_INET;
-	// targetAddr.sin_port = htons(targetPort);
-	// if (inet_aton((argv[1]), &targetAddr.sin_addr) == 0) {
-	// 	exit(1);
-	// } 
 
-	// inet_ntop(AF_INET, &(targetAddr.sin_addr), ip, INET_ADDRSTRLEN);
 	// readFile(filename);
 	// buff[0] = SOH;
 	// sendto(sockfd, buff, MaxByte, 0, (struct sockaddr *)&targetAddr, addrlen); //Mengirim data ke receiver
@@ -191,16 +192,31 @@ void * waitXON(void *arg) {
 //bagi data menjadi beberapa frame
 void divideData() {
 	numFrame = MsgLen/6+1;
-	int numberFrame = -1;
+	int pindahFrame = 0,pindahSlide = 0;
+	int q = numFrame/5; //jumlah slidingnya
+	if (q*5<numFrame) ++q;
+	int numberFrame = -1; //kenapa -1?
 		//printf("%d ",  numberFrame);
 	int idxData=0;
 	arrayFrame = (MESGB *)malloc(sizeof(MESGB)*(MsgLen/6+1));
+	sWindow = (WindowCek *)malloc(sizeof(WindowCek)*(MsgLen/6+1));
+	sliding = (SlidingW *)malloc(sizeof(SlidingW)*(q));
 	unsigned int checksum=0;
 	for (int i=0; i < MsgLen; i++) {
 		printf("%d\n",i);
 		if (i % 6 == 0) {
 			if (numberFrame>0) {
+				
 				arrayFrame[numberFrame-1].checksum = (char) checksum;	
+				WindowCek temp = {i,0,arrayFrame[numberFrame-1]};
+				sWindow[numberFrame-1] = temp;
+				sliding[pindahSlide].all[pindahFrame]=sWindow[numberFrame-1];
+				if (pindahFrame<5) {
+					pindahFrame++;
+				} else {
+					pindahFrame = 0;
+					pindahSlide++;
+				}
 			}
 			idxData = 0;
 			checksum = 0;
@@ -228,9 +244,79 @@ void divideData() {
 		}
 
 		if(i==MsgLen-1){
-			arrayFrame[numberFrame-1].checksum = (char) checksum;
+			arrayFrame[numberFrame].checksum = (char) checksum;
+			WindowCek temp = {i,0,arrayFrame[numberFrame]};
+			sWindow[numberFrame] = temp;
 		}
 	}
 }
 
+int checkAllAck(SlidingW a) {
+	int i = 0;
+	while (i<5) {
+		if (a.all[i].ackStatus!=1) {
+			return 0;		
+		}	
+	}
+	return 1;
+}
 
+
+
+void* thread1(void *arg) {
+	int c=(MsgLen/6+1)/5, i = 0, n = 0;
+	if (c*5<(MsgLen/6+1)) ++c;
+	while ( i<c ) {
+
+		while ( checkAllAck(sliding[i]) == 0 ) {
+			if (sliding[i].all[n].ackStatus!=1) {
+				//tambahin kirim
+				//sprintf(bufs, "%s", temp.c_str());
+				//sendto(sockfd, bufs, MaxFrameLength, 0, (struct sockaddr *)&targetAddr, addrLen);
+			}
+			if (n<5) {
+				n++;
+			} else n=0;
+		}
+		n=0;
+		i++;
+		usleep((DELAY * 1000)/WindowSize);
+
+	}
+
+	exit1 = 1;
+	printf("Exiting1\n");
+
+	return NULL;
+}
+
+void* thread2(void *arg) {
+	/* Child Thread */
+	
+	while (exit1 == 0) {
+		/* Listening XON XOFF signal */ 
+		//ambil recv ack
+		//recvfrom(sockfd, res, MaxResponseLength, 0, (struct sockaddr *)&targetAddr, &addrLen)
+		//recvfrom(sockfd, res1, MaxResponseLength, 0, (struct sockaddr *)&targetAddr, &addrLen)  
+		
+		
+		if ( (int)res[0] == 6 ) { //ACK
+			int u = (int)res1[0]/5;
+			if (u*5<(int)res1[0]) ++u;
+			sliding[u].all[(int)res1[0] % 5].ackStatus=1;
+
+			printf("ACK");
+		} else {
+			printf("NAK");	
+
+			
+			//kirim lagi dr res1
+			//sprintf(bufs, "%s", temp.c_str());
+			//(sendto(sockfd, bufs, MaxFrameLength, 0, (struct sockaddr *)&targetAddr, addrLen)	
+		}
+
+	}
+
+	printf("Exiting2\n");
+	return NULL;
+}
