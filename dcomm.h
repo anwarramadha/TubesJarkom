@@ -41,4 +41,10 @@ typedef struct MESGB {
 	Byte *data;
 } MESGB;
 
+typedef struct WindowCek 
+{
+  int frameNum;
+  int status;
+} WindowCek;
+
 #endif

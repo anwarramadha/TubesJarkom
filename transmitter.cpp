@@ -14,6 +14,7 @@
 
 #define DELAY 500
 #define MaxByte 1
+#define WindowSize 5
 
 //socket
 int sockfd;
@@ -42,19 +43,51 @@ void divideData();
 //Array of frane
 MESGB *arrayFrame;
 MESGB *slidingWindow = (MESGB*) malloc(sizeof(MESGB)*4);
+WindowCek sWindow[WindowSize];
 
 int main (int argc, char *argv[]) {
-	// Byte c;
+	 Byte c;
+	 int transmit = 0;
 
 	// //Buat socket
-	// if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-	// 	perror("cannot create socket");
-	// }
+	 if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+	 	perror("cannot create socket");
+	 }
 
-	// targetPort = atoi(argv[2]);
-	// if (argv[3] != NULL) {
+	 targetPort = atoi(argv[2]);
+	 if (argv[3] != NULL) {
 		filename = argv[1];
-	// }
+	 }
+	
+	readFile(filename);
+	divideData();
+	   //untuk inisialisasi slidingnya
+	for(int i=0;i<WindowSize;i++)
+	{
+		WindowCek temp = {i,0};
+		sWindow[i] = temp;
+	}
+
+	  //ngenransmit dari file data yg dibaca tadi
+	for(int i=0;i<WindowSize;i++) {
+		if(sWindow[i].status==-1 || sWindow[i].status==1) continue;
+		//kirim perwindow, -1=ack		
+		//sendto(&arrayFrame[sWIndow[i].frameNum],sizeof(arrayFrame[sWIndow[i].frameNum]));
+		sWindow[i].status = 1; //statusnya kekirim
+	}
+	
+	while(1) //dia ngecek ack
+	{
+		if(transmit)
+		{
+			for(int i=0;i<WindowSize;i++) {
+				if(sWindow[i].status==-1 ) continue;
+				//sendto(&arrayFrame[sWIndow[i].frameNum],sizeof(arrayFrame[sWIndow[i].frameNum]));
+				sWindow[i].status = 1;
+			}
+			transmit = 0;
+		}
+	}
 
 	// memset((char *) &targetAddr, 0 ,sizeof(targetAddr));
 	// targetAddr.sin_family = AF_INET;
@@ -85,8 +118,6 @@ int main (int argc, char *argv[]) {
 	// pthread_join(tid[2], NULL);
 	// close(sockfd);
 	// exit(EXIT_SUCCESS);
-	readFile(filename);
-	divideData();
 	for(int i =0; i < 1; i++) {
 		// printf("%c\n", arrayFrame[i].data[0]);
 	}
